@@ -1,0 +1,344 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ChatLab — Exercise 3 JWT Authentication</title>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #111827;
+      color: #f8fafc;
+      margin: 30px auto;
+      max-width: 760px;
+      padding: 0 15px;
+    }
+
+    h1 { color: #f8fafc; }
+
+    button, input, select {
+      padding: 9px;
+      margin: 4px;
+      border-radius: 5px;
+    }
+
+    button { cursor: pointer; }
+
+    section {
+      border: 1px solid #374151;
+      padding: 15px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      background: #1f2937;
+    }
+
+    #events {
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      min-height: 250px;
+      padding: 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 13px/1.6 monospace;
+    }
+
+    .hint { color: #94a3b8; }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+  </style>
+</head>
+
+<body>
+
+  <h1>ChatLab — JWT Authentication</h1>
+
+  <p class="hint">
+    Exercise 3: JWT Login, REST Authentication,
+    WebSocket Authentication and Origin Validation
+  </p>
+
+  <!-- LOGIN SECTION -->
+  <section>
+    <h2>1. User Login</h2>
+
+    <label for="username">Username</label>
+    <select id="username">
+      <option value="alice">alice (admin)</option>
+      <option value="bob">bob (member)</option>
+      <option value="carol">carol (member)</option>
+      <option value="guest1">guest1 (guest)</option>
+    </select>
+
+    <br>
+
+    <label for="password">Password</label>
+    <input
+      id="password"
+      type="password"
+      placeholder="Enter password"
+      autocomplete="current-password"
+    >
+
+    <button id="login">Login</button>
+    <button id="logout">Logout</button>
+
+    <p>Login status:
+      <span id="loginStatus">Not authenticated</span>
+    </p>
+
+    <p>Authenticated user:
+      <strong id="currentUser">None</strong>
+    </p>
+  </section>
+
+  <!-- WEBSOCKET SECTION -->
+  <section>
+    <h2>2. WebSocket Connection</h2>
+
+    <button id="connect">Connect</button>
+    <button id="disconnect">Disconnect</button>
+
+    <span id="status">Disconnected</span>
+
+    <p class="hint">
+      A valid JWT is required before opening WebSocket.
+    </p>
+  </section>
+
+  <!-- ROOM SECTION -->
+  <section>
+    <h2>3. Room Messaging</h2>
+
+    <label for="room">Room</label>
+    <select id="room">
+      <option value="general">general</option>
+      <option value="dev">dev</option>
+    </select>
+
+    <button id="join">Join</button>
+    <button id="leave">Leave</button>
+
+    <p>
+      <input
+        id="message"
+        placeholder="Message (500 characters max)"
+        maxlength="500"
+        style="width:60%"
+      >
+      <button id="send">Send message</button>
+    </p>
+  </section>
+
+  <!-- EVENT OUTPUT -->
+  <h3>Messages and Events</h3>
+  <div id="events"></div>
+
+<script>
+'use strict';
+
+let ws = null;
+let token = null;
+let authenticatedUser = null;
+
+const el = id => document.getElementById(id);
+
+function log(value) {
+  el('events').textContent +=
+    `[${new Date().toISOString()}] ${value}\n`;
+}
+
+function setLoginStatus(message, success) {
+  const status = el('loginStatus');
+  status.textContent = message;
+  status.className = success ? 'success' : 'error';
+}
+
+function setConnectionStatus(message) {
+  el('status').textContent = message;
+}
+
+/*
+ * Exercise 3 — Login
+ * POST /api/v1/login
+ */
+el('login').onclick = async () => {
+  const username = el('username').value;
+  const password = el('password').value;
+
+  if (!password) {
+    setLoginStatus('Password is required', false);
+    return;
+  }
+
+  // A new login starts a new authenticated session.
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+
+  token = null;
+  authenticatedUser = null;
+  el('currentUser').textContent = 'None';
+  setConnectionStatus('Disconnected');
+
+  try {
+    const response = await fetch('/api/v1/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.token) {
+      setLoginStatus('Login failed', false);
+      log(`LOGIN REJECTED HTTP ${response.status}`);
+      return;
+    }
+
+    token = data.token;
+    authenticatedUser = username;
+
+    setLoginStatus('Authenticated', true);
+    el('currentUser').textContent = username;
+
+    // Do not print the JWT in the event log.
+    log(`LOGIN SUCCESS: ${username}`);
+    el('password').value = '';
+
+  } catch (err) {
+    setLoginStatus('Login error', false);
+    log(`LOGIN ERROR: ${err.message}`);
+  }
+};
+
+/*
+ * Exercise 3 — Logout
+ * Clear the token and close the active connection.
+ */
+el('logout').onclick = () => {
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+
+  token = null;
+  authenticatedUser = null;
+
+  el('password').value = '';
+  el('currentUser').textContent = 'None';
+
+  setLoginStatus('Not authenticated', false);
+  setConnectionStatus('Disconnected');
+
+  log('Logged out');
+};
+
+/*
+ * Exercise 3 — Authenticated WebSocket Connection
+ * Token is passed in the WebSocket query string.
+ */
+el('connect').onclick = () => {
+  if (!token) {
+    log('Please login before connecting.');
+    return;
+  }
+
+  if (ws && (
+    ws.readyState === WebSocket.OPEN ||
+    ws.readyState === WebSocket.CONNECTING
+  )) {
+    log('WebSocket already connected or connecting.');
+    return;
+  }
+
+  const protocol =
+    location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  const url =
+    `${protocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+
+  // Never display the full tokenized URL in logs.
+  ws = new WebSocket(url);
+
+  setConnectionStatus('Connecting...');
+
+  ws.onopen = () => {
+    setConnectionStatus('Connected');
+    log(`WebSocket connected as ${authenticatedUser}`);
+  };
+
+  ws.onmessage = event => {
+    log(`RECV ${event.data}`);
+  };
+
+  ws.onclose = event => {
+    setConnectionStatus('Disconnected');
+    log(`WebSocket closed (code ${event.code})`);
+  };
+
+  ws.onerror = () => {
+    log('WebSocket connection error');
+  };
+};
+
+/*
+ * Exercise 1 compatibility:
+ * Preserve join, leave, and message functionality.
+ */
+function send(data) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log('Not connected');
+    return;
+  }
+
+  const raw = JSON.stringify(data);
+  ws.send(raw);
+  log(`SEND ${raw}`);
+}
+
+el('disconnect').onclick = () => {
+  if (ws) {
+    ws.close();
+  }
+};
+
+el('join').onclick = () => {
+  send({
+    type: 'join',
+    room: el('room').value
+  });
+};
+
+el('leave').onclick = () => {
+  send({
+    type: 'leave',
+    room: el('room').value
+  });
+};
+
+el('send').onclick = () => {
+  const text = el('message').value;
+
+  if (!text.trim()) {
+    log('Message cannot be empty');
+    return;
+  }
+
+  send({
+    type: 'message',
+    room: el('room').value,
+    text
+  });
+
+  el('message').value = '';
+};
+
+</script>
+</body>
+</html>

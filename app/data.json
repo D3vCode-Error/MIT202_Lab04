@@ -1,0 +1,42 @@
+{
+  "rooms": [
+    "general",
+    "dev"
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "role": "admin",
+      "rooms": [
+        "general",
+        "dev"
+      ],
+      "passwordHash": "$2b$12$UwAi/Dd4WqyhCzU4OsIxIOl3KR8uxC7f1pdIGtmsk3qOkcaJpimYy"
+    },
+    {
+      "username": "bob",
+      "role": "member",
+      "rooms": [
+        "general",
+        "dev"
+      ],
+      "passwordHash": "$2b$12$rfpJFcqkM8nCSIFFr.lNRuatenA99Vawsa.hb7plf6Q.F3PJoemcu"
+    },
+    {
+      "username": "carol",
+      "role": "member",
+      "rooms": [
+        "general"
+      ],
+      "passwordHash": "$2b$12$OrvEAFWw6Jg128bhUNJZM.RXWQ4j3fzUt/gJTr3vV.WoMq38jt4qe"
+    },
+    {
+      "username": "guest1",
+      "role": "guest",
+      "rooms": [
+        "general"
+      ],
+      "passwordHash": "$2b$12$K.0oKneqrvKWGqVPd38VxOzkflyfzqLDcV0p8hJpjhGKcREgc6hPa"
+    }
+  ]
+}
